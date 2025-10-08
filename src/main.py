@@ -132,8 +132,18 @@ class DirectorySelector(QWidget):
         
         self.pdf_worker = None
 
+
+        def resource_path(relative_path):
+            try:
+                base_path = sys._MEIPASS
+            except Exception:
+                base_path = os.path.abspath(".")
+
+            return os.path.join(base_path, relative_path)
+
         try:
-            pdfmetrics.registerFont(TTFont("JetBrainsMono", os.path.join("assets", "JetBrainsMono.ttf")))
+            font_path = resource_path(os.path.join("assets", "JetBrainsMono.ttf"))
+            pdfmetrics.registerFont(TTFont("JetBrainsMono", font_path))
             base_font = "JetBrainsMono"
         except Exception:
             print("Шрифт JetBrainsMono.ttf не найден. Используется стандартный шрифт.")
