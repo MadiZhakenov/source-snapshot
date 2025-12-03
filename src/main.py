@@ -14,6 +14,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+# =====================================================================
+# === ПОТОК-ВОРКЕР ===
+# =====================================================================
 class PdfWorker(QThread):
     status_updated = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
@@ -103,6 +106,9 @@ class PdfWorker(QThread):
     def stop(self):
         self.is_running = False
 
+# =====================================================================
+# === GUI ===
+# =====================================================================
 class DirectorySelector(QWidget):
     def __init__(self):
         super().__init__()
@@ -132,16 +138,16 @@ class DirectorySelector(QWidget):
         
         self.pdf_worker = None
 
-
+        # Функция для поиска ресурсов (шрифта) в .exe и в обычном режиме
         def resource_path(relative_path):
             try:
                 base_path = sys._MEIPASS
             except Exception:
                 base_path = os.path.abspath(".")
-
             return os.path.join(base_path, relative_path)
 
         try:
+            # Ищем шрифт в папке assets
             font_path = resource_path(os.path.join("assets", "JetBrainsMono.ttf"))
             pdfmetrics.registerFont(TTFont("JetBrainsMono", font_path))
             base_font = "JetBrainsMono"
@@ -231,6 +237,11 @@ class DirectorySelector(QWidget):
         if item.childCount() == 1 and item.child(0).text(0) == "...":
             item.removeChild(item.child(0))
             self.populate_tree(item, self.get_item_path(item))
+            
+            # Если папка была отмечена, отмечаем и загруженные элементы
+            if item.checkState(0) == Qt.CheckState.Checked:
+                for i in range(item.childCount()):
+                    item.child(i).setCheckState(0, Qt.CheckState.Checked)
 
     def get_item_path(self, item):
         parts = []
@@ -253,6 +264,7 @@ class DirectorySelector(QWidget):
         if column != 0: return
         state = item.checkState(0)
         self.tree.blockSignals(True)
+        # Распространяем выбор на дочерние элементы
         for i in range(item.childCount()):
             child = item.child(i)
             if child.text(0) != "...":
@@ -263,39 +275,64 @@ class DirectorySelector(QWidget):
     def update_parent_state(self, item):
         parent = item.parent()
         if not parent: return
-        checked_count, unchecked_count = 0, 0
-        for i in range(parent.childCount()):
+        
+        checked_count = 0
+        unchecked_count = 0
+        partially_checked_count = 0
+        
+        child_count = parent.childCount()
+        for i in range(child_count):
             child = parent.child(i)
             if child.text(0) == "...": continue
+            
             state = child.checkState(0)
-            if state == Qt.CheckState.Checked: checked_count += 1
-            elif state == Qt.CheckState.Unchecked: unchecked_count += 1
+            if state == Qt.CheckState.Checked:
+                checked_count += 1
+            elif state == Qt.CheckState.Unchecked:
+                unchecked_count += 1
+            else:
+                partially_checked_count += 1
         
-        if checked_count > 0 and unchecked_count > 0: parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-        elif checked_count == 0: parent.setCheckState(0, Qt.CheckState.Unchecked)
-        else: parent.setCheckState(0, Qt.CheckState.Checked)
+        # Логика определения состояния родителя
+        if checked_count == child_count:
+            parent.setCheckState(0, Qt.CheckState.Checked)
+        elif checked_count == 0 and partially_checked_count == 0:
+            parent.setCheckState(0, Qt.CheckState.Unchecked)
+        else:
+            # Если есть хоть один выбранный или частично выбранный - родитель частично выбран
+            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
         
         self.update_parent_state(parent)
 
     def collect_selected_files_recursive(self, item, path):
         selected = []
         state = item.checkState(0)
-        EXCLUDED_DIRS = ['.git', '__pycache__', 'venv', '.vscode', '.next', 'node_modules']
+        EXCLUDED_DIRS = ['.git', '__pycache__', 'venv', '.vscode', '.next', 'node_modules', '.idea']
         
+        # Если папка полностью выбрана
         if state == Qt.CheckState.Checked:
             if os.path.isdir(path):
                 for dirpath, dirnames, filenames in os.walk(path):
+                    # Фильтруем папки
                     dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
-                    for f in filenames: selected.append(os.path.join(dirpath, f))
-            else: selected.append(path)
+                    for f in filenames:
+                        selected.append(os.path.join(dirpath, f))
+            else:
+                selected.append(path)
+        
+        # Если папка частично выбрана, идем внутрь
         elif state == Qt.CheckState.PartiallyChecked:
             for i in range(item.childCount()):
                 child = item.child(i)
                 if child.text(0) == "...": continue
+                
+                # Пропускаем исключенные папки
                 if os.path.isdir(os.path.join(path, child.text(0))) and child.text(0) in EXCLUDED_DIRS:
                     continue
+
                 child_path = os.path.join(path, child.text(0))
                 selected.extend(self.collect_selected_files_recursive(child, child_path))
+        
         return selected
 
 if __name__ == "__main__":
