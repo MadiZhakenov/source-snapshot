@@ -17,7 +17,7 @@
 
 ## Пример результата
 
-![Пример сгенерированного PDF-отчета](docs/img/result_screen.png)
+<img src="docs/img/result_screen.png" alt="Пример сгенерированного PDF-отчета" width="400">
 
 
 ## Как использовать
