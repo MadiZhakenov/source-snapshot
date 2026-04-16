@@ -386,8 +386,8 @@ class DirectorySelector(QWidget):
             line_count = count_lines(full_path)
             display_name = f"{name} ({line_count} строк)"
         elif os.path.isdir(full_path):
-            # For directories, do NOT calculate yet. Show placeholder.
-            display_name = f"{name} (...)"
+            # For directories, do NOT calculate yet. Show just the name.
+            display_name = name
         else:
             display_name = name
         
@@ -421,14 +421,8 @@ class DirectorySelector(QWidget):
             path = self.get_item_path(item)
             self.populate_tree(item, path)
             
-            # Calculate total lines for this directory NOW (Lazy Loading)
-            total_lines = count_lines_in_directory(path)
-            current_text = item.text(0)
-            # Replace "(...)" with actual count
-            if "(...)" in current_text:
-                new_text = current_text.replace("(...)", f"({total_lines} строк)")
-                item.setText(0, new_text)
-                item.setData(0, Qt.ItemDataRole.UserRole + 1, total_lines)
+            # REMOVED: Do NOT calculate total lines for directory anymore (too slow)
+            # The folder name will stay as "FolderName (...)"
             
             # If folder was checked, check loaded children too
             if item.checkState(0) == Qt.CheckState.Checked:
