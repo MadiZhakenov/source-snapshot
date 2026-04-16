@@ -13,6 +13,97 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import chardet
+
+# =====================================================================
+# === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+# =====================================================================
+
+def count_lines(filepath):
+    """Подсчитать количество строк в файле."""
+    try:
+        # Проверка размера файла
+        file_size = os.path.getsize(filepath)
+        MAX_FILE_SIZE_MB = 10
+        if file_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            return 0
+        
+        # Расширения бинарных файлов
+        BINARY_EXTENSIONS = {
+            '.bin', '.pkl', '.exe', '.dll', '.so', '.a',
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico', '.svg',
+            '.zip', '.rar', '.7z', '.gz', '.tar', '.bz2',
+            '.mp3', '.wav', '.mp4', '.mov', '.avi', '.mkv', '.flac', '.ogg', '.wma',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt',
+            '.pyc', '.pyo', '.class', '.jar', '.war',
+            '.db', '.sqlite', '.sqlite3', '.mdb',
+            '.woff', '.woff2', '.ttf', '.eot', '.otf',
+            '.log', '.lock', '.cache'
+        }
+        
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext in BINARY_EXTENSIONS:
+            return 0
+        
+        # Проверка на null-байты для неизвестных расширений
+        TEXT_EXTENSIONS = {
+            '.py', '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',
+            '.html', '.htm', '.css', '.scss', '.sass', '.less', '.styl',
+            '.java', '.kt', '.scala', '.groovy',
+            '.c', '.cpp', '.h', '.hpp', '.cc', '.cxx', '.cs',
+            '.go', '.rs', '.swift', '.rb', '.php', '.pl', '.sh', '.bash', '.zsh',
+            '.sql', '.r', '.lua', '.vim', '.el', '.clj', '.erl', '.ex', '.exs',
+            '.hs', '.ml', '.fs', '.fsx',
+            '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+            '.md', '.rst', '.txt', '.csv',
+            '.env', '.gitignore', '.dockerfile', '.makefile', '.cmake',
+            '.vue', '.svelte', '.astro',
+            '.graphql', '.gql', '.proto', '.thrift',
+            '.tf', '.tfvars', '.hcl',
+            '.ps1', '.bat', '.cmd', '.vbs',
+            '.asm', '.s', '.S',
+            '.dart', '.flutter',
+            '.nim', '.zig', '.v', '.vy',
+            '.jl', '.m', '.mx',
+            '.awk', '.sed',
+            '.ipynb', '.rmd',
+            '.adoc', '.org', '.wiki',
+            '.prisma'
+        }
+        
+        if ext not in TEXT_EXTENSIONS:
+            try:
+                with open(filepath, 'rb') as f:
+                    chunk = f.read(8192)
+                    if b'\x00' in chunk:
+                        return 0
+            except:
+                return 0
+        
+        # Чтение и подсчёт строк
+        with open(filepath, 'rb') as f:
+            raw_data = f.read()
+        
+        # Определение кодировки
+        result = chardet.detect(raw_data)
+        encoding = result['encoding'] if result['encoding'] else 'utf-8'
+        
+        try:
+            content = raw_data.decode(encoding)
+        except UnicodeDecodeError:
+            for enc in ['utf-8', 'cp1251', 'utf-16', 'latin-1']:
+                try:
+                    content = raw_data.decode(enc)
+                    break
+                except:
+                    continue
+            else:
+                return 0
+        
+        return len(content.splitlines())
+    except Exception:
+        return 0
+
 
 # =====================================================================
 # === ПОТОК-ВОРКЕР ===
@@ -132,12 +223,12 @@ class PdfWorker(QThread):
                     line_count = len(content.splitlines())
                     
                     wrapped_content = self.wrap_text(content)
-                    story.append(Paragraph(f"Файл: {file_path} ({line_count} строк)", self.styles["RussianHeading"]))
+                    story.append(Paragraph(f"Файл: {filename} ({line_count} строк)", self.styles["RussianHeading"]))
                     story.append(Preformatted(wrapped_content, self.styles["RussianMono"]))
                     story.append(Spacer(1, 15))
 
                 except Exception as e:
-                    story.append(Paragraph(f"Не удалось прочитать файл {file_path} ({e})", self.styles["Russian"]))
+                    story.append(Paragraph(f"Не удалось прочитать файл {filename}", self.styles["Russian"]))
             
             self.status_updated.emit("Почти готово... Создание PDF-файла.")
             doc.build(story)
@@ -268,10 +359,23 @@ class DirectorySelector(QWidget):
         event.accept()
 
     def add_child(self, parent, path, name):
-        child = QTreeWidgetItem(parent, [name])
+        full_path = os.path.join(path, name)
+        
+        # Calculate line count for files
+        line_count = 0
+        if os.path.isfile(full_path):
+            line_count = count_lines(full_path)
+            display_name = f"{name} ({line_count} строк)"
+        else:
+            display_name = name
+        
+        child = QTreeWidgetItem(parent, [display_name])
+        child.setData(0, Qt.ItemDataRole.UserRole, full_path)  # Store actual path
+        child.setData(0, Qt.ItemDataRole.UserRole + 1, line_count)  # Store line count
         child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsSelectable)
         child.setCheckState(0, Qt.CheckState.Unchecked)
-        if os.path.isdir(os.path.join(path, name)):
+        
+        if os.path.isdir(full_path):
             QTreeWidgetItem(child, ["..."])
         return child
 
@@ -293,9 +397,21 @@ class DirectorySelector(QWidget):
                     item.child(i).setCheckState(0, Qt.CheckState.Checked)
 
     def get_item_path(self, item):
+        # Try to get stored path from UserRole first
+        stored_path = item.data(0, Qt.ItemDataRole.UserRole)
+        if stored_path and isinstance(stored_path, str):
+            return stored_path
+        
+        # Fallback to old method if no stored path
         parts = []
         while item:
-            parts.insert(0, item.text(0))
+            # Extract name without line count suffix
+            text = item.text(0)
+            if " (" in text and text.endswith(" строк)"):
+                name = text.split(" (")[0]
+            else:
+                name = text
+            parts.insert(0, name)
             item = item.parent()
         return os.path.join(*parts)
 
@@ -375,11 +491,21 @@ class DirectorySelector(QWidget):
                 child = item.child(i)
                 if child.text(0) == "...": continue
                 
+                # Get actual path from stored data or extract from display name
+                child_path = child.data(0, Qt.ItemDataRole.UserRole)
+                if not child_path or not isinstance(child_path, str):
+                    # Fallback: extract name from display text
+                    text = child.text(0)
+                    if " (" in text and text.endswith(" строк)"):
+                        name = text.split(" (")[0]
+                    else:
+                        name = text
+                    child_path = os.path.join(path, name)
+                
                 # Пропускаем исключенные папки
-                if os.path.isdir(os.path.join(path, child.text(0))) and child.text(0) in EXCLUDED_DIRS:
+                if os.path.isdir(child_path) and os.path.basename(child_path) in EXCLUDED_DIRS:
                     continue
 
-                child_path = os.path.join(path, child.text(0))
                 selected.extend(self.collect_selected_files_recursive(child, child_path))
         
         return selected
