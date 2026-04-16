@@ -403,8 +403,13 @@ class DirectorySelector(QWidget):
         return child
 
     def populate_tree(self, parent, path):
+        EXCLUDED_DIRS = ['.git', '__pycache__', 'venv', '.vscode', '.next', 'node_modules', '.idea']
         try:
             for entry in os.listdir(path):
+                full_path = os.path.join(path, entry)
+                # Пропускаем исключённые папки сразу при построении дерева
+                if os.path.isdir(full_path) and entry in EXCLUDED_DIRS:
+                    continue
                 self.add_child(parent, path, entry)
         except PermissionError:
             pass
