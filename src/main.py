@@ -380,26 +380,26 @@ class DirectorySelector(QWidget):
     def add_child(self, parent, path, name):
         full_path = os.path.join(path, name)
         
-        # Calculate line count for files and directories
+        # Calculate line count ONLY for files, NOT for directories (Lazy Loading)
         line_count = 0
         if os.path.isfile(full_path):
             line_count = count_lines(full_path)
             display_name = f"{name} ({line_count} строк)"
         elif os.path.isdir(full_path):
-            # For directories, calculate total lines recursively
-            line_count = count_lines_in_directory(full_path)
-            display_name = f"{name} ({line_count} строк)"
+            # For directories, do NOT calculate yet. Show placeholder.
+            display_name = f"{name} (...)"
         else:
             display_name = name
         
         child = QTreeWidgetItem(parent, [display_name])
         child.setData(0, Qt.ItemDataRole.UserRole, full_path)  # Store actual path
-        child.setData(0, Qt.ItemDataRole.UserRole + 1, line_count)  # Store line count
+        child.setData(0, Qt.ItemDataRole.UserRole + 1, line_count)  # Store line count (0 for dirs initially)
         child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsSelectable)
         child.setCheckState(0, Qt.CheckState.Unchecked)
         
         if os.path.isdir(full_path):
-            QTreeWidgetItem(child, ["..."])
+            # Add dummy item to show expand arrow
+            QTreeWidgetItem(child, ["Loading..."])
         return child
 
     def populate_tree(self, parent, path):
@@ -415,11 +415,22 @@ class DirectorySelector(QWidget):
             pass
 
     def on_item_expanded(self, item):
-        if item.childCount() == 1 and item.child(0).text(0) == "...":
+        # Check if this is a dummy "Loading..." item
+        if item.childCount() == 1 and item.child(0).text(0) == "Loading...":
             item.removeChild(item.child(0))
-            self.populate_tree(item, self.get_item_path(item))
+            path = self.get_item_path(item)
+            self.populate_tree(item, path)
             
-            # Если папка была отмечена, отмечаем и загруженные элементы
+            # Calculate total lines for this directory NOW (Lazy Loading)
+            total_lines = count_lines_in_directory(path)
+            current_text = item.text(0)
+            # Replace "(...)" with actual count
+            if "(...)" in current_text:
+                new_text = current_text.replace("(...)", f"({total_lines} строк)")
+                item.setText(0, new_text)
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, total_lines)
+            
+            # If folder was checked, check loaded children too
             if item.checkState(0) == Qt.CheckState.Checked:
                 for i in range(item.childCount()):
                     item.child(i).setCheckState(0, Qt.CheckState.Checked)
@@ -460,7 +471,7 @@ class DirectorySelector(QWidget):
         # Распространяем выбор на дочерние элементы
         for i in range(item.childCount()):
             child = item.child(i)
-            if child.text(0) != "...":
+            if child.text(0) != "Loading...":
                 child.setCheckState(0, state)
         self.update_parent_state(item)
         self.tree.blockSignals(False)
@@ -476,7 +487,7 @@ class DirectorySelector(QWidget):
         child_count = parent.childCount()
         for i in range(child_count):
             child = parent.child(i)
-            if child.text(0) == "...": continue
+            if child.text(0) == "Loading...": continue
             
             state = child.checkState(0)
             if state == Qt.CheckState.Checked:
