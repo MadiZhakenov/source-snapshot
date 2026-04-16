@@ -33,13 +33,43 @@ class PdfWorker(QThread):
             MAX_FILE_SIZE_MB = 10
             MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
             
+            # Extensions that are definitely binary/media files
             BINARY_FILE_EXTENSIONS = [
                 '.bin', '.pkl', '.exe', '.dll', '.so', '.a', 
-                '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
-                '.zip', '.rar', '.7z', '.gz', '.tar',
-                '.mp3', '.wav', '.mp4', '.mov', '.avi',
-                '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-                '.pyc', '.ico', '.svg'
+                '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico', '.svg',
+                '.zip', '.rar', '.7z', '.gz', '.tar', '.bz2',
+                '.mp3', '.wav', '.mp4', '.mov', '.avi', '.mkv', '.flac', '.ogg', '.wma',
+                '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt',
+                '.pyc', '.pyo', '.class', '.jar', '.war',
+                '.db', '.sqlite', '.sqlite3', '.mdb',
+                '.woff', '.woff2', '.ttf', '.eot', '.otf',
+                '.min.js', '.min.css'
+            ]
+            
+            # Extensions that are likely clean text/code files
+            TEXT_FILE_EXTENSIONS = [
+                '.py', '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',
+                '.html', '.htm', '.css', '.scss', '.sass', '.less', '.styl',
+                '.java', '.kt', '.scala', '.groovy',
+                '.c', '.cpp', '.h', '.hpp', '.cc', '.cxx', '.cs',
+                '.go', '.rs', '.swift', '.rb', '.php', '.pl', '.sh', '.bash', '.zsh',
+                '.sql', '.r', '.lua', '.vim', '.el', '.clj', '.erl', '.ex', '.exs',
+                '.hs', '.ml', '.fs', '.fsx',
+                '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+                '.md', '.rst', '.txt', '.log', '.csv',
+                '.env', '.gitignore', '.dockerfile', '.makefile', '.cmake',
+                '.vue', '.svelte', '.astro',
+                '.graphql', '.gql', '.proto', '.thrift',
+                '.tf', '.tfvars', '.hcl',
+                '.ps1', '.bat', '.cmd', '.vbs',
+                '.asm', '.s', '.S',
+                '.dart', '.flutter',
+                '.nim', '.zig', '.v', '.vy',
+                '.jl', '.m', '.mx',
+                '.awk', '.sed',
+                '.ipynb', '.rmd',
+                '.adoc', '.org', '.wiki',
+                '.prisma', '.graphql',
             ]
             
             doc = SimpleDocTemplate(self.output_path, pagesize=A4)
@@ -52,12 +82,28 @@ class PdfWorker(QThread):
                     return
 
                 filename = os.path.basename(file_path)
-                self.status_updated.emit(f"Обработка ({i+1}/{total_files}): {filename}")
-                
                 _, file_extension = os.path.splitext(file_path)
-                if file_extension.lower() in BINARY_FILE_EXTENSIONS:
+                ext_lower = file_extension.lower()
+                
+                # Skip known binary extensions
+                if ext_lower in BINARY_FILE_EXTENSIONS:
                     print(f"Пропущен бинарный файл (по расширению): {file_path}")
                     continue
+                
+                # For unknown extensions, check if file appears to be binary
+                if ext_lower not in TEXT_FILE_EXTENSIONS:
+                    # Try to detect if it's binary by checking for null bytes
+                    try:
+                        with open(file_path, 'rb') as f:
+                            chunk = f.read(8192)
+                            if b'\x00' in chunk:
+                                print(f"Пропущен бинарный файл (обнаружены null-байты): {file_path}")
+                                continue
+                    except Exception:
+                        print(f"Пропущен файл (не удалось прочитать): {file_path}")
+                        continue
+                
+                self.status_updated.emit(f"Обработка ({i+1}/{total_files}): {filename}")
 
                 if os.path.getsize(file_path) > MAX_FILE_SIZE_BYTES:
                     print(f"Пропущен слишком большой файл (> {MAX_FILE_SIZE_MB} МБ): {file_path}")
@@ -68,7 +114,7 @@ class PdfWorker(QThread):
                         raw_data = raw_file.read()
 
                     content = None
-                    if file_extension.lower() == '.txt':
+                    if ext_lower == '.txt':
                         try:
                             content = raw_data.decode('utf-8')
                         except UnicodeDecodeError:
@@ -82,8 +128,11 @@ class PdfWorker(QThread):
                         except UnicodeDecodeError:
                             content = raw_data.decode('cp1251', errors='replace')
                     
+                    # Count lines
+                    line_count = len(content.splitlines())
+                    
                     wrapped_content = self.wrap_text(content)
-                    story.append(Paragraph(f"Файл: {file_path}", self.styles["RussianHeading"]))
+                    story.append(Paragraph(f"Файл: {file_path} ({line_count} строк)", self.styles["RussianHeading"]))
                     story.append(Preformatted(wrapped_content, self.styles["RussianMono"]))
                     story.append(Spacer(1, 15))
 
