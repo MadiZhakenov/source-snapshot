@@ -1,4 +1,3 @@
-```
 # Compiled and build artifacts
 *.pyc
 __pycache__/
@@ -64,4 +63,3 @@ wheels/
 
 # Original rules preserved
 *.log
-```

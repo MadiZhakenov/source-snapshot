@@ -242,12 +242,15 @@ class PdfWorker(QThread):
                     line_count = len(content.splitlines())
                     
                     wrapped_content = self.wrap_text(content)
-                    story.append(Paragraph(f"Файл: {filename} ({line_count} строк)", self.styles["RussianHeading"]))
+                    story.append(Paragraph(f"Файл: {file_path} ({line_count} строк)", self.styles["RussianHeading"]))
                     story.append(Preformatted(wrapped_content, self.styles["RussianMono"]))
                     story.append(Spacer(1, 15))
 
-                except Exception as e:
-                    story.append(Paragraph(f"Не удалось прочитать файл {filename}", self.styles["Russian"]))
+                except Exception:
+                    err_lines = count_lines(file_path)
+                    story.append(Paragraph(f"Файл: {file_path} ({err_lines} строк)", self.styles["RussianHeading"]))
+                    story.append(Paragraph("Не удалось прочитать содержимое файла.", self.styles["Russian"]))
+                    story.append(Spacer(1, 15))
             
             self.status_updated.emit("Почти готово... Создание PDF-файла.")
             doc.build(story)
