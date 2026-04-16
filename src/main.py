@@ -105,6 +105,25 @@ def count_lines(filepath):
         return 0
 
 
+def count_lines_in_directory(dirpath):
+    """Рекурсивно подсчитать количество строк во всех файлах директории."""
+    total_lines = 0
+    EXCLUDED_DIRS = ['.git', '__pycache__', 'venv', '.vscode', '.next', 'node_modules', '.idea']
+    
+    try:
+        for dirpath_walk, dirnames, filenames in os.walk(dirpath):
+            # Фильтруем исключаемые папки
+            dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+            
+            for filename in filenames:
+                filepath = os.path.join(dirpath_walk, filename)
+                total_lines += count_lines(filepath)
+    except (PermissionError, OSError):
+        pass
+    
+    return total_lines
+
+
 # =====================================================================
 # === ПОТОК-ВОРКЕР ===
 # =====================================================================
@@ -361,10 +380,14 @@ class DirectorySelector(QWidget):
     def add_child(self, parent, path, name):
         full_path = os.path.join(path, name)
         
-        # Calculate line count for files
+        # Calculate line count for files and directories
         line_count = 0
         if os.path.isfile(full_path):
             line_count = count_lines(full_path)
+            display_name = f"{name} ({line_count} строк)"
+        elif os.path.isdir(full_path):
+            # For directories, calculate total lines recursively
+            line_count = count_lines_in_directory(full_path)
             display_name = f"{name} ({line_count} строк)"
         else:
             display_name = name
